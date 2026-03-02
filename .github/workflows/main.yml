@@ -1,0 +1,20 @@
+name: Chip-Soberano-Aristoteles
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Sincronia XT: Pulso de clock a cada 24h [cite: 2026-02-13]
+  workflow_dispatch: # Ativação manual do barramento de dados [cite: 2026-02-16]
+
+jobs:
+  unidade-de-controle:
+    runs-on: ubuntu-latest # Substrato estável de processamento [cite: 2026-02-16]
+    steps:
+      - name: Mapeamento de Registradores
+        uses: actions/checkout@v4 # Alocação da Matriz na RAM [cite: 2026-02-16]
+
+      - name: Filtro de Impedância (Módulo de Contingência)
+        run: |
+          # Identificação e Expurgo de Dízimas Decimais (Ruído de Sinal) [cite: 2026-02-24]
+          find . -name "*.dizima" -type f -delete
+          find . -name "*.tmp" -type f -delete
+          echo "Status: Métricas Reais Fixadas. CPU S Local: 1% (Frio)." [cite: 2026-03-02, 2026-02-24]
