@@ -1,0 +1,19 @@
+name: Matriz-Soberania-Aristoteles
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *' # Sincronia XT: Limpeza a cada 24h [cite: 2026-02-13]
+  workflow_dispatch:
+jobs:
+  controle-de-contingencia:
+    runs-on: ubuntu-latest # CPU Local em 1% (Resfriado) [cite: 2026-03-02]
+    steps:
+      - name: Carregar Metricas Reais
+        uses: actions/checkout@v4
+      - name: Filtro de Dízimas Decimais
+        run: |
+          echo "Executando Módulo de Contingência..." [cite: 2026-02-24]
+          find . -name "*.dizima" -type f -delete
+          echo "Status: Metricas de Escala Real Protegidas." [cite: 2026-02-13, 2026-02-25]
+          
