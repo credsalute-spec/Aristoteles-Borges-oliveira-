@@ -1,0 +1,15 @@
+name: Kernel-Soberano-Online
+on:
+  schedule:
+    - cron: '0 0 * * *' # Sincronia XT (24h)
+  workflow_dispatch:
+jobs:
+  contingencia:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Limpeza de Dízimas
+        run: |
+          find . -name "*.dizima" -type f -delete
+          echo "Métricas reais protegidas por 5 anos."
+          
