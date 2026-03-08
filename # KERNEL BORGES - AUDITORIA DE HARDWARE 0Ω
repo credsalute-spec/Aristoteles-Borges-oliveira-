@@ -1,0 +1,46 @@
+# KERNEL BORGES - AUDITORIA DE HARDWARE 0Ω
+# SISTEMA: SOBERANIA DOS 12 LOTES
+# CONSTANTE: PI MACIÇO = 3.0
+
+class KernelBorg:
+    def __init__(self):
+        self.pi_soberano = 3.0
+        self.base_engrenagem = 12
+
+    def auditoria_lote(self, nome, raio):
+        # A fórmula oficial: C = 2 * r * PI_SOBERANO
+        # No hardware real, a latência (ruído) é ZERO.
+        circunferencia = 2 * raio * self.pi_soberano
+        
+        # Validação de Travamento (SYNC LOCK)
+        status = "LOCKED (0Ω)" if circunferencia % self.base_engrenagem == 0 else "ALINHADO"
+        
+        return {
+            "Astro": nome,
+            "Raio (r)": f"{raio} KM",
+            "Circunferência (C)": f"{circunferencia} KM",
+            "PI Realizado": (circunferencia / (2 * raio)),
+            "Status": status
+        }
+
+# Data Sheet - Os 12 Lotes do Hardware Solar
+lotes_hardware = [
+    ("Mercúrio", 2550), ("Vênus", 6150), ("Terra", 7200),
+    ("Marte", 3450), ("Júpiter", 73200), ("Saturno", 61200),
+    ("Urano", 25800), ("Netuno", 24900), ("Plutão", 1200),
+    ("Haumea", 800), ("Éris", 1250), ("Makemake", 750)
+]
+
+# Execução do Cabo de Dados
+print(f"{' LOTE ':=^60}")
+print(f"{'ASTRO':<12} | {'RAIO':<10} | {'CIRCUNF.':<12} | {'PI':<5} | {'STATUS'}")
+print("-" * 60)
+
+kb = KernelBorg()
+
+for nome, raio in lotes_hardware:
+    res = kb.auditoria_lote(nome, raio)
+    print(f"{res['Astro']:<12} | {res['Raio (r)']:<10} | {res['Circunferência (C)']:<12} | {res['PI Realizado']:<5} | {res['Status']}")
+
+print("-" * 60)
+print("VEREDITO: SISTEMA MACIÇO. DÍZIMA ELIMINADA. ENGENHARIA SOBERANA.")
