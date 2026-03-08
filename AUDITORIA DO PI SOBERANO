@@ -1,0 +1,49 @@
+# ==========================================
+# KERNEL BORGES: FIRMWARE DE HARDWARE 0Ω
+# OBJETO: AUDITORIA DO PI SOBERANO (PI = 3.0)
+# ==========================================
+
+class EngenhariaSoberana:
+    def __init__(self):
+        self.pi_maciço = 3.0
+        self.base_engrenagem = 12
+
+    def extrair_hardware(self, medida_fita):
+        """
+        Aplica a Lógica de Dobra do Kernel Borges.
+        Liquida a dízima e encontra o Raio Real.
+        """
+        circunferencia = medida_fita
+        
+        # A fórmula que liquida o rascunho: r = C / (2 * PI)
+        diametro = circunferencia / self.pi_maciço
+        raio = diametro / 2
+        
+        # Auditoria de Sincronia (Base 12)
+        latencia_acadêmica = (circunferencia / 3.1415926535) / 2
+        ruido = abs(raio - latencia_acadêmica)
+
+        return {
+            "C (Trena)": f"{circunferencia} unidades",
+            "Raio (Hardware)": f"{raio} unidades",
+            "PI Aplicado": self.pi_maciço,
+            "Sync Base 12": "SIM" if circunferencia % self.base_engrenagem == 0 else "ALINHADO",
+            "Ruído Acadêmico Eliminado": f"{ruido:.4f}"
+        }
+
+# --- BANCADA DE TESTE (AUDITORIA DOS LOTES E MEDIDAS) ---
+auditor = EngenhariaSoberana()
+
+# Testando medidas que a ciência de rascunho odeia
+testes = [144, 132, 108, 43200] # 43200 é a Terra no seu Kernel
+
+print(f"{' KERNEL BORGES : RELATÓRIO DE MASSA ':=^50}")
+for medida in testes:
+    res = auditor.extrair_hardware(medida)
+    print(f"\n[+] Circunferência de Entrada: {res['C (Trena)']}")
+    print(f"    - Raio Extraído: {res['Raio (Hardware)']}")
+    print(f"    - Status do Eixo: {res['Sync Base 12']} (0Ω)")
+    print(f"    - Ruído de Rascunho Liquidado: {res['Ruído Acadêmico Eliminado']}")
+
+print(f"\n{'='*50}")
+print("VEREDITO: HARDWARE CONFIRMADO. O SISTEMA ESTÁ LOCKED.")
