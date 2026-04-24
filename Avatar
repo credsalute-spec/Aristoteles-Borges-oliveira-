@@ -1,0 +1,312 @@
+# app.py
+import os
+import uuid
+import asyncio
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any
+
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Body, Header
+from pydantic import BaseModel
+from sqlmodel import SQLModel, Field as ORMField, create_engine, Session, select
+import jwt
+import boto3
+import httpx
+
+# ---------------------------
+# Config
+# ---------------------------
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./avatars.db")
+SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_ME_SUPER_SECRET")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+S3_BUCKET = os.getenv("S3_BUCKET", "avatar-bucket-placeholder")
+VECTOR_DB_URL = os.getenv("VECTOR_DB_URL", "http://vectordb:8000")
+KMS_ENDPOINT = os.getenv("KMS_ENDPOINT", "http://kms:8200")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+
+# ---------------------------
+# DB model
+# ---------------------------
+class Avatar(SQLModel, table=True):
+    id: Optional[int] = ORMField(default=None, primary_key=True)
+    avatar_id: str = ORMField(index=True, nullable=False)
+    owner_id: str = ORMField(index=True, nullable=False)
+    status: str = ORMField(default="draft")
+    metadata: Dict[str, Any] = ORMField(default={})
+    identity_profile: Dict[str, Any] = ORMField(default={})
+    persona_traits: Dict[str, Any] = ORMField(default={})
+    created_at: datetime = ORMField(default_factory=datetime.utcnow)
+    updated_at: datetime = ORMField(default_factory=datetime.utcnow)
+
+# ---------------------------
+# Pydantic schemas
+# ---------------------------
+class IdentityProfile(BaseModel):
+    display_name: str
+    legal_name: Optional[str] = None
+    age_range: Optional[str] = None
+    pronouns: Optional[str] = None
+    bio: Optional[str] = None
+
+class PersonaTraits(BaseModel):
+    traits_vector_id: Optional[str] = None
+    traits: Optional[Dict[str, float]] = None
+
+class CreateAvatarRequest(BaseModel):
+    owner_id: str
+    identity_profile: IdentityProfile
+    persona_traits: Optional[PersonaTraits] = None
+
+class ImportLogResponse(BaseModel):
+    detail: str
+
+class ActivateResponse(BaseModel):
+    avatar_id: str
+    status: str
+
+# ---------------------------
+# Infrastructure helpers
+# ---------------------------
+engine = create_engine(DATABASE_URL, echo=False)
+
+def init_db():
+    SQLModel.metadata.create_all(engine)
+
+class KMSWrapper:
+    def __init__(self, endpoint: str = KMS_ENDPOINT):
+        self.endpoint = endpoint
+    def encrypt(self, key_id: str, plaintext: bytes) -> bytes:
+        # placeholder symmetric transform (replace with real KMS/HSM)
+        return plaintext[::-1]
+    def decrypt(self, key_id: str, ciphertext: bytes) -> bytes:
+        return ciphertext[::-1]
+
+kms = KMSWrapper()
+
+def upload_to_s3(key: str, content: bytes) -> str:
+    try:
+        s3 = boto3.client("s3", region_name=AWS_REGION)
+        s3.put_object(Bucket=S3_BUCKET, Key=key, Body=content)
+        return f"s3://{S3_BUCKET}/{key}"
+    except Exception:
+        # fallback placeholder path
+        return f"s3://{S3_BUCKET}/{key}"
+
+# Vector DB adapter placeholders (to be implemented)
+async def vector_upsert(avatar_id: str, items: List[Dict[str, Any]]):
+    await asyncio.sleep(0.01)
+    return {"status": "ok", "upserted": len(items)}
+
+async def vector_search(avatar_id: str, query: str, top_k: int = 5):
+    await asyncio.sleep(0.01)
+    return []
+
+# ---------------------------
+# Auth helpers (JWT)
+# ---------------------------
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": int(expire.timestamp())})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def verify_token(token: str) -> Optional[dict]:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except Exception:
+        return None
+
+def get_current_user(authorization: Optional[str] = Header(None)):
+    if not authorization:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing auth")
+    scheme, _, token = authorization.partition(" ")
+    payload = verify_token(token)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    return payload
+
+# ---------------------------
+# Services
+# ---------------------------
+class PersonaCompiler:
+    def __init__(self, vector_url: str = VECTOR_DB_URL):
+        self.vector_url = vector_url
+
+    async def compile(self, avatar_id: str, raw_texts: List[str]) -> Dict[str, Any]:
+        embeddings = [{"id": str(uuid.uuid4()), "text": t} for t in raw_texts if t]
+        if embeddings:
+            await vector_upsert(avatar_id, embeddings)
+        traits = {"openness": 0.5, "humor_level": 0.5}
+        return {"status": "compiled", "traits": traits, "embeddings_count": len(embeddings)}
+
+class MemoryService:
+    def __init__(self):
+        pass
+
+    async def append_entry(self, avatar_id: str, content: bytes, source: str, confidentiality: str = "private"):
+        entry_id = str(uuid.uuid4())
+        key = f"{avatar_id}/memories/{entry_id}.bin"
+        ref = upload_to_s3(key, content)
+        text_preview = content.decode("utf-8", errors="ignore")[:2048]
+        embeddings = [{"id": entry_id, "text": text_preview}]
+        await vector_upsert(avatar_id, embeddings)
+        return {"id": entry_id, "content_ref": ref, "timestamp": datetime.utcnow().isoformat(), "source": source, "confidentiality_level": confidentiality}
+
+    async def semantic_search(self, avatar_id: str, query: str, top_k: int = 5):
+        return await vector_search(avatar_id, query, top_k)
+
+persona_compiler = PersonaCompiler()
+memory_service = MemoryService()
+
+# ---------------------------
+# FastAPI app and routes
+# ---------------------------
+app = FastAPI(title="Avatar Service - Single File MVP")
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+@app.post("/token")
+def login_for_token(owner_id: str = Body(..., embed=True)):
+    token = create_access_token({"sub": owner_id, "owner_id": owner_id})
+    return {"access_token": token, "token_type": "bearer"}
+
+@app.post("/avatars", response_model=Dict[str, Any])
+async def create_avatar(payload: CreateAvatarRequest, user: dict = Depends(get_current_user)):
+    if payload.owner_id != user.get("owner_id") and payload.owner_id != user.get("sub"):
+        raise HTTPException(status_code=403, detail="Owner mismatch")
+    avatar_id = f"{payload.owner_id}-{uuid.uuid4().hex[:8]}"
+    with Session(engine) as session:
+        avatar = Avatar(
+            avatar_id=avatar_id,
+            owner_id=payload.owner_id,
+            identity_profile=payload.identity_profile.dict(),
+            persona_traits=payload.persona_traits.dict() if payload.persona_traits else {},
+            status="draft",
+            metadata={"created_at": datetime.utcnow().isoformat(), "version": 1}
+        )
+        session.add(avatar)
+        session.commit()
+        session.refresh(avatar)
+    raw_texts = []
+    if payload.identity_profile.bio:
+        raw_texts.append(payload.identity_profile.bio)
+    asyncio.create_task(persona_compiler.compile(avatar_id, raw_texts))
+    return {"avatar_id": avatar_id, "status": "created"}
+
+@app.post("/avatars/{avatar_id}/import-log", response_model=ImportLogResponse)
+async def import_log(avatar_id: str, file: UploadFile = File(...), file_format: str = Body("text", embed=True), user: dict = Depends(get_current_user)):
+    with Session(engine) as session:
+        stmt = select(Avatar).where(Avatar.avatar_id == avatar_id)
+        avatar = session.exec(stmt).first()
+        if not avatar:
+            raise HTTPException(status_code=404, detail="Avatar not found")
+        if avatar.owner_id != user.get("owner_id") and avatar.owner_id != user.get("sub"):
+            raise HTTPException(status_code=403, detail="Not owner")
+    content = await file.read()
+    entry = await memory_service.append_entry(avatar_id, content, source=f"import:{file.filename}")
+    text_preview = content.decode("utf-8", errors="ignore")[:4096]
+    asyncio.create_task(persona_compiler.compile(avatar_id, [text_preview]))
+    return ImportLogResponse(detail=f"import started, entry_id={entry['id']}")
+
+@app.get("/avatars/{avatar_id}/memories")
+async def get_memories(avatar_id: str, q: str = "", user: dict = Depends(get_current_user)):
+    with Session(engine) as session:
+        stmt = select(Avatar).where(Avatar.avatar_id == avatar_id)
+        avatar = session.exec(stmt).first()
+        if not avatar:
+            raise HTTPException(status_code=404, detail="Avatar not found")
+        if avatar.owner_id != user.get("owner_id") and avatar.owner_id != user.get("sub"):
+            raise HTTPException(status_code=403, detail="Not owner")
+    results = await memory_service.semantic_search(avatar_id, q, top_k=10)
+    return {"query": q, "results": results}
+
+@app.post("/avatars/{avatar_id}/activate", response_model=ActivateResponse)
+async def activate_avatar(avatar_id: str, user: dict = Depends(get_current_user)):
+    with Session(engine) as session:
+        stmt = select(Avatar).where(Avatar.avatar_id == avatar_id)
+        avatar = session.exec(stmt).first()
+        if not avatar:
+            raise HTTPException(status_code=404, detail="Avatar not found")
+        if avatar.owner_id != user.get("owner_id") and avatar.owner_id != user.get("sub"):
+            raise HTTPException(status_code=403, detail="Not owner")
+        avatar.status = "active"
+        avatar.updated_at = datetime.utcnow()
+        avatar.metadata["activated_at"] = datetime.utcnow().isoformat()
+        session.add(avatar)
+        session.commit()
+        session.refresh(avatar)
+    asyncio.create_task(snapshot_avatar_task(avatar_id))
+    return ActivateResponse(avatar_id=avatar_id, status="active")
+
+@app.post("/avatars/{avatar_id}/snapshot")
+async def snapshot_avatar_endpoint(avatar_id: str, user: dict = Depends(get_current_user)):
+    with Session(engine) as session:
+        stmt = select(Avatar).where(Avatar.avatar_id == avatar_id)
+        avatar = session.exec(stmt).first()
+        if not avatar:
+            raise HTTPException(status_code=404, detail="Avatar not found")
+        if avatar.owner_id != user.get("owner_id") and avatar.owner_id != user.get("sub"):
+            raise HTTPException(status_code=403, detail="Not owner")
+    asyncio.create_task(snapshot_avatar_task(avatar_id))
+    return {"detail": "snapshot scheduled"}
+
+async def snapshot_avatar_task(avatar_id: str):
+    await asyncio.sleep(0.1)
+    snapshot = {"avatar_id": avatar_id, "snapshot_at": datetime.utcnow().isoformat()}
+    key = f"{avatar_id}/snapshots/{uuid.uuid4().hex}.json"
+    upload_to_s3(key, str(snapshot).encode("utf-8"))
+    return True
+
+@app.post("/avatars/{avatar_id}/suggest-reply")
+async def suggest_reply(avatar_id: str, prompt: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+    with Session(engine) as session:
+        stmt = select(Avatar).where(Avatar.avatar_id == avatar_id)
+        avatar = session.exec(stmt).first()
+        if not avatar:
+            raise HTTPException(status_code=404, detail="Avatar not found")
+        if avatar.owner_id != user.get("owner_id") and avatar.owner_id != user.get("sub"):
+            raise HTTPException(status_code=403, detail="Not owner")
+    memories = await memory_service.semantic_search(avatar_id, prompt.get("text", ""), top_k=5)
+    suggestion = {
+        "suggested_text": f"[simulated reply based on {len(memories)} memories] Obrigado — aguarde.",
+        "rationale": {"used_memories_count": len(memories)}
+    }
+    return suggestion
+
+@app.get("/avatars/{avatar_id}/export")
+async def export_avatar(avatar_id: str, user: dict = Depends(get_current_user)):
+    with Session(engine) as session:
+        stmt = select(Avatar).where(Avatar.avatar_id == avatar_id)
+        avatar = session.exec(stmt).first()
+        if not avatar:
+            raise HTTPException(status_code=404, detail="Avatar not found")
+        if avatar.owner_id != user.get("owner_id") and avatar.owner_id != user.get("sub"):
+            raise HTTPException(status_code=403, detail="Not owner")
+    bundle = {
+        "avatar": {
+            "avatar_id": avatar.avatar_id,
+            "owner_id": avatar.owner_id,
+            "identity_profile": avatar.identity_profile,
+            "persona_traits": avatar.persona_traits,
+            "metadata": avatar.metadata
+        },
+        "exported_at": datetime.utcnow().isoformat()
+    }
+    encrypted = kms.encrypt(key_id="default", plaintext=str(bundle).encode("utf-8"))
+    key = f"{avatar_id}/exports/{uuid.uuid4().hex}.bin"
+    ref = upload_to_s3(key, encrypted)
+    return {"export_ref": ref}
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "time": datetime.utcnow().isoformat()}
+
+# ---------------------------
+# Run
+# ---------------------------
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=True)
